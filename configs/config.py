@@ -6,7 +6,10 @@ def get_config(client, project_name, project_owner=None):
     project = client.get_project_by_name(project_name, owner=project_owner)
     
     # make split
-    project.make_split()
+    split = project.make_split()
+
+    assert split['n_train'] > 0, f'Number of training samples should be bigger than zero'
+    assert split['n_val'] > 0, f'Number of validation samples should be bigger than zero'
 
     # define defaults
     config = CN()
@@ -23,7 +26,7 @@ def get_config(client, project_name, project_owner=None):
     config.display = True
     config.display_it = 50
 
-    config.pretrained_model = './output/checkpoint.pth'
+    config.pretrained_model = None
 
     config.train_dataset = CN(dict(
         name = 'remote', 

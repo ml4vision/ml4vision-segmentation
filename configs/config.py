@@ -1,24 +1,11 @@
 from yacs.config import CfgNode as CN
 
-def get_config(client, project_name, project_owner=None):
-
-    # load project
-    project = client.get_project_by_name(project_name, owner=project_owner)
-    
-    # make split
-    split = project.make_split()
-
-    assert split['n_train'] > 0, f'Number of training samples should be bigger than zero'
-    assert split['n_val'] > 0, f'Number of validation samples should be bigger than zero'
+def get_config(project_location='./data', categories=None):
 
     # define defaults
     config = CN()
 
-    config.project_uuid = project.uuid
-    config.project_name = project.name
-    config.project_owner = project.owner['username']
-    config.categories = project.categories
-    config.n_categories = len(project.categories)
+    config.categories = categories
 
     config.save = True
     config.save_location = './output'
@@ -29,33 +16,23 @@ def get_config(client, project_name, project_owner=None):
     config.pretrained_model = None
 
     config.train_dataset = CN(dict(
-        name = 'remote', 
+        name = 'ml4vision', 
         params = CN(dict(
-            api_key = client.apikey,
-            name = project.name,
-            owner = project_owner,
-            labeled_only = True,
-            approved_only = False,
+            location = project_location,
             split = 'TRAIN',
-            cache_location = './dataset',
-            min_size = 500,
-            ignore_zero = False if len(project.categories) == 1 else True
+            fake_size = 500,
+            ignore_zero = False if len(categories) == 1 else True
         )),
         batch_size = 4,
         num_workers = 4
     ))
 
     config.val_dataset = CN(dict(
-        name = 'remote',
+        name = 'ml4vision',
         params = CN(dict(
-            api_key = client.apikey,
-            name = project.name,
-            owner = project_owner,
-            labeled_only = True,
-            approved_only = False,
+            location = project_location,
             split = 'VAL',
-            cache_location = './dataset',
-            ignore_zero = False if len(project.categories) == 1 else True
+            ignore_zero = False if len(categories) == 1 else True
         )),
         batch_size = 1,
         num_workers = 4
@@ -65,12 +42,12 @@ def get_config(client, project_name, project_owner=None):
         name = 'unet',
         params = CN(dict(
             encoder_name = 'resnet18',
-            classes = len(project.categories)
+            classes = len(categories)
         ))
     ))
 
     config.loss = CN(dict(
-        name = 'bcedice' if len(project.categories) == 1 else 'cedice',
+        name = 'bcedice' if len(categories) == 1 else 'cedice',
         params = CN(dict(
             ignore_index = 255
         ))

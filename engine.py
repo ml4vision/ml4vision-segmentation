@@ -86,7 +86,7 @@ class Engine:
     def display(self, pred, sample):
         # display a single image
         image = sample['image'][0]
-        pred = (pred[0] > 0).cpu() if self.config.n_categories == 1 else torch.argmax(pred[0],dim=0).cpu()
+        pred = (pred[0] > 0).cpu() if len(self.config.categories) == 1 else torch.argmax(pred[0],dim=0).cpu()
         gt = sample['label'][0]
 
         self.visualizer.display(image, pred, gt)
@@ -95,7 +95,7 @@ class Engine:
         images = sample['image'].to(self.device)
         labels = sample['label'].to(self.device)
 
-        if self.config.n_categories == 1:
+        if len(self.config.categories) == 1:
             labels = (labels > 0).unsqueeze(1).float()
         else:
             labels = labels.long()
@@ -132,7 +132,7 @@ class Engine:
 
         # define meters
         loss_meter = AverageMeter()
-        iou_meter = IOUEvaluator(config.n_categories + 1 if config.n_categories == 1 else config.n_categories)
+        iou_meter = IOUEvaluator(len(config.categories) + 1 if len(config.categories) == 1 else len(config.categories))
 
         self.model.eval()
         with torch.no_grad():
@@ -147,14 +147,14 @@ class Engine:
                 labels = sample['label'].to(self.device)
                 labels = labels.unsqueeze(1).long()
 
-                if config.n_categories == 1: # binary
+                if len(config.categories) == 1: # binary
                     labels = (labels > 0).long()
                     iou_meter.addBatch((pred > 0).long(), labels)
                 else:
                     iou_meter.addBatch(pred.argmax(dim=1,keepdim=True), labels)
 
         # get iou metric
-        if config.n_categories == 1:
+        if len(config.categories) == 1:
             iou = iou_meter.getIoU()[1][1] 
             metrics = {'mean_iou': iou}
         else:
@@ -219,3 +219,41 @@ class Engine:
 
             if self.optimizer.param_groups[0]['lr'] < self.config.solver.lr/100:
                 break
+
+    def upload(self, project):
+        
+        config = self.config
+
+        # load best ap model
+        model = self.get_model(config, torch.device('cpu'))
+        state = torch.load(os.path.join(config.save_location, 'best_miou_model.pth'), map_location='cpu')
+        model.load_state_dict(state['model_state_dict'], strict=True)
+        model.eval()
+
+        # trace model
+        traced_model = torch.jit.trace(model, torch.randn(1, 3, config.transform.min_size, config.transform.min_size)) 
+        traced_model.save(os.path.join(config.save_location, 'best_miou_model.pt'))
+
+        # upload model
+        remote_model = project.client.get_or_create_model(
+            f"{project.name}-model",
+            description='',
+            project=project.uuid,
+            categories=project.categories,
+            annotation_type="SEGMENTATION",
+            architecture="segmentation_fn"
+        )
+
+        print('uploading model to ml4vision ...')
+
+        remote_model.add_version(
+            os.path.join(config.save_location, 'best_miou_model.pt'),
+            params = {
+                'min_size': config.transform.min_size if config.transform.resize else False,
+                'pad': 32,
+                'normalize': True,
+            },
+            metrics = {
+                'miou': round(state['metrics']['mean_iou'], 3)
+            }
+        )

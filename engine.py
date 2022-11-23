@@ -9,6 +9,7 @@ from utils.transforms import get_train_transform, get_val_transform
 from utils.iou_evaluator import IOUEvaluator
 from utils.visualizer import SegmentationVisualizer
 from tqdm import tqdm
+from ml4vision.client import MLModel
 
 class Engine:
 
@@ -234,20 +235,22 @@ class Engine:
         traced_model = torch.jit.trace(model, torch.randn(1, 3, config.transform.min_size, config.transform.min_size)) 
         traced_model.save(os.path.join(config.save_location, 'best_miou_model.pt'))
 
-        # upload model
-        remote_model = project.client.get_or_create_model(
-            f"{project.name}-model",
-            description='',
-            project=project.uuid,
-            categories=project.categories,
-            annotation_type="SEGMENTATION",
-            architecture="segmentation_fn"
-        )
+        # create model
+        if project.model is None:
+            model = MLModel.create(
+                project.client,
+                f'{project.name}-model',
+                type='SEGMENTATION',
+                project=project.uuid,
+            )
+        else:
+            model = project.model
 
-        print('uploading model to ml4vision ...')
-
-        remote_model.add_version(
+        print('adding version to project ...')
+        model.add_version(
             os.path.join(config.save_location, 'best_miou_model.pt'),
+            categories=project.categories,
+            architecture="ml4vision-seg",
             params = {
                 'min_size': config.transform.min_size if config.transform.resize else False,
                 'pad': 32,
